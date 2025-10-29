@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <title>Fotorealistisk Hoggorm Snake med Portal-toggle</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #222; }
+    #gameCanvas { display: block; margin: auto; background: #eee; box-shadow: 0 0 20px #444; border-radius: 24px; border: 4px solid #222; touch-action: none; }
+    #score, #highscore { color: #fff; text-align: center; font-family: monospace; }
+    #score { font-size: 2em; margin-top: 0.4em; letter-spacing: 2px; }
+    #highscore { color: #ffd700; font-size: 1.2em; margin-bottom: 0.3em; letter-spacing: 2px; }
+    #portal-indicator {
+      position: absolute;
+      left: 3vw;
+      top: 1vw;
+      font-family: monospace;
+      font-size: 1.4em;
+      background: #222;
+      color: #0ff;
+      border-radius: 8px;
+      padding: 0.3em 1.1em;
+      border: 2px solid #0ff;
+      box-shadow: 0 0 9px #044 inset;
+      z-index: 2;
+      user-select: none;
+    }
+    #portal-indicator.off {
+      color: #888;
+      border-color: #444;
+      box-shadow: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="portal-indicator" class="on">Portal: PÅ</div>
+  <div id="highscore"></div>
+  <div id="score"></div>
+  <canvas id="gameCanvas"></canvas>
+  <script>
+    // --- Portal-effekt toggle ---
+    let portalEnabled = true;
+    const portalIndicator = document.getElementById('portal-indicator');
+    function updatePortalIndicator() {
+      if (portalEnabled) {
+        portalIndicator.textContent = "Portal: PÅ";
+        portalIndicator.className = "on";
+      } else {
+        portalIndicator.textContent = "Portal: AV";
+        portalIndicator.className = "off";
+      }
+    }
+    updatePortalIndicator();
+
+    // --- Skaler banen til 80% av skjermstørrelse med 16:10 ratio ---
+    function getCanvasSize() {
+      const w = window.innerWidth * 0.8;
+      const h = window.innerHeight * 0.8;
+      let ratioW = w, ratioH = h;
+      if (w/h > 16/10) { ratioW = h * (16/10); ratioH = h; }
+      else { ratioW = w; ratioH = w * (10/16); }
+      return {width: Math.floor(ratioW), height: Math.floor(ratioH)};
+    }
+
+    let canvas = document.getElementById('gameCanvas');
+    let ctx = canvas.getContext('2d');
+    let scoreDiv = document.getElementById('score');
+    let highscoreDiv = document.getElementById('highscore');
+    let cellSize = 0, cols = 0, rows = 0;
+    let running = true;
+
+    function resizeCanvas() {
+      const {width, height} = getCanvasSize();
+      canvas.width = width;
+      canvas.height = height;
+      cols = 32; rows = 20;
+      cellSize = Math.floor(Math.min(width/cols, height/rows));
+    }
+    resizeCanvas();
+    window.addEventListener('resize', () => { resizeCanvas(); draw(); });
+
+    // ---- Highscore ----
+    let highscore = Number(localStorage.getItem("snake_highscore")) || 0;
+    function updateHighscore(newScore) {
+      if (newScore > highscore) {
+        highscore = newScore;
+        localStorage.setItem("snake_highscore", String(highscore));
+      }
+      highscoreDiv.textContent = `High Score: ${highscore}`;
+    }
+    updateHighscore(0);
+
+    // ---- Snake-variabler ----
+    let snake = [{x: Math.floor(cols/2), y: Math.floor(rows/2)}];
+    let direction = {x: 1, y: 0};
+    let nextDirection = {x: 1, y: 0};
+    let score = 0;
+    let hue = 0;
+    let food = {x: 5, y: 5, type: "food"};
+    let bites = 0;
+
+    function placeFoodOrPortal() {
+      let valid = false;
+      while (!valid) {
+        food.x = Math.floor(Math.random() * cols);
+        food.y = Math.floor(Math.random() * rows);
+        valid = !snake.some(segment => segment.x === food.x && segment.y === food.y);
+      }
+      // Bare portal hvis portalEnabled er true
+      food.type = (portalEnabled && bites > 0 && bites % 5 === 0) ? "portal" : "food";
+    }
+    placeFoodOrPortal();
+
+    // --- Hoggorm-mønster for kroppsegment ---
+    function drawViperSegment(x, y, rotate=0, isTail=false) {
+      ctx.save();
+      ctx.translate((x+0.5)*cellSize, (y+0.5)*cellSize);
+      ctx.rotate(rotate);
+      // Skygge
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.arc(0, 2, cellSize*0.45, 0, Math.PI*2);
+      ctx.fillStyle = "#333";
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // Segmentkropp: lys/mørk base
+      ctx.beginPath();
+      ctx.arc(0, 0, cellSize*0.42, 0, Math.PI*2);
+      ctx.fillStyle = isTail ? "#6a5d4e" : "#a89c86";
+      ctx.fill();
+      // Zigzag-mønster
+      ctx.save();
+      ctx.rotate(Math.PI/8);
+      for(let i=-1;i<=1;i++) {
+        ctx.beginPath();
+        ctx.moveTo(-cellSize*0.3, cellSize*0.12*i);
+        ctx.lineTo(-cellSize*0.15, cellSize*0.22*i);
+        ctx.lineTo(0, cellSize*0.12*i);
+        ctx.lineTo(cellSize*0.15, cellSize*0.22*i);
+        ctx.lineTo(cellSize*0.3, cellSize*0.12*i);
+        ctx.strokeStyle = "#24201c";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+      ctx.restore();
+      // Litt skimmer/lysrefleks
+      ctx.beginPath();
+      ctx.arc(-cellSize*0.15, -cellSize*0.18, cellSize*0.1, 0, Math.PI*2);
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // --- Tegn hoggormhode ---
+    function drawViperHead(x, y, rotate=0) {
+      ctx.save();
+      ctx.translate((x+0.5)*cellSize, (y+0.5)*cellSize);
+      ctx.rotate(rotate);
+      // Skygge
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      ctx.arc(0, cellSize*0.16, cellSize*0.48, 0, Math.PI*2);
+      ctx.fillStyle = "#333";
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // Hodeform (trekant)
+      ctx.beginPath();
+      ctx.moveTo(-cellSize*0.36, cellSize*0.15);
+      ctx.lineTo(0, -cellSize*0.36);
+      ctx.lineTo(cellSize*0.36, cellSize*0.15);
+      ctx.quadraticCurveTo(0, cellSize*0.42, -cellSize*0.36, cellSize*0.15);
+      ctx.fillStyle = "#9e9179";
+      ctx.fill();
+      // Zigzag på hodet
+      ctx.beginPath();
+      ctx.moveTo(-cellSize*0.16, -cellSize*0.02);
+      ctx.lineTo(-cellSize*0.08, -cellSize*0.13);
+      ctx.lineTo(0, -cellSize*0.02);
+      ctx.lineTo(cellSize*0.08, -cellSize*0.13);
+      ctx.lineTo(cellSize*0.16, -cellSize*0.02);
+      ctx.strokeStyle = "#353026";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      // Øyne
+      ctx.beginPath();
+      ctx.arc(-cellSize*0.12, -cellSize*0.12, cellSize*0.06, 0, Math.PI*2);
+      ctx.arc(cellSize*0.12, -cellSize*0.12, cellSize*0.06, 0, Math.PI*2);
+      ctx.fillStyle = "#222";
+      ctx.fill();
+      // Pupiller
+      ctx.beginPath();
+      ctx.arc(-cellSize*0.12, -cellSize*0.12, cellSize*0.02, 0, Math.PI*2);
+      ctx.arc(cellSize*0.12, -cellSize*0.12, cellSize*0.02, 0, Math.PI*2);
+      ctx.fillStyle = "#fff";
+      ctx.globalAlpha = 0.7;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // Liten tunge
+      ctx.beginPath();
+      ctx.moveTo(0, cellSize*0.16);
+      ctx.lineTo(0, cellSize*0.32);
+      ctx.strokeStyle = "#c22";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, cellSize*0.32);
+      ctx.lineTo(-cellSize*0.04, cellSize*0.37);
+      ctx.moveTo(0, cellSize*0.32);
+      ctx.lineTo(cellSize*0.04, cellSize*0.37);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawSnake() {
+      for (let i = snake.length-1; i >= 0; i--) {
+        let seg = snake[i];
+        let rot = 0;
+        // Finn rotasjon basert på retning
+        if (i > 0) {
+          let dx = seg.x - snake[i-1].x;
+          let dy = seg.y - snake[i-1].y;
+          if (dx === 1) rot = 0;
+          else if (dx === -1) rot = Math.PI;
+          else if (dy === 1) rot = Math.PI/2;
+          else if (dy === -1) rot = -Math.PI/2;
+        } else if (snake.length > 1) {
+          let dx = snake[0].x - snake[1].x;
+          let dy = snake[0].y - snake[1].y;
+          if (dx === 1) rot = 0;
+          else if (dx === -1) rot = Math.PI;
+          else if (dy === 1) rot = Math.PI/2;
+          else if (dy === -1) rot = -Math.PI/2;
+        }
+        if (i === 0) {
+          drawViperHead(seg.x, seg.y, rot);
+        } else {
+          drawViperSegment(seg.x, seg.y, rot, i === snake.length-1);
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Mat eller Portal
+      if (food.type === "portal") {
+        ctx.save();
+        ctx.shadowColor = "cyan";
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.arc((food.x + 0.5) * cellSize, (food.y + 0.5) * cellSize, cellSize/2, 0, Math.PI*2);
+        ctx.fillStyle = "deepskyblue";
+        ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc((food.x + 0.5) * cellSize, (food.y + 0.5) * cellSize, cellSize/2.5, 0, Math.PI*2);
+        ctx.fillStyle = "red";
+        ctx.shadowColor = "orange";
+        ctx.shadowBlur = 7;
+        ctx.fill();
+        ctx.restore();
+      }
+      // Snake (hoggorm/viper-grafikk)
+      drawSnake();
+    }
+
+    function gameOver() {
+      running = false;
+      updateHighscore(score);
+      scoreDiv.textContent = `Game Over! Score: ${score}`;
+      ctx.font = `${cellSize*2}px monospace`;
+      ctx.fillStyle = 'rgba(0,0,0,0.8)';
+      ctx.fillText('GAME OVER', canvas.width/4, canvas.height/2);
+    }
+
+    function randomFreeCell() {
+      let freeCells = [];
+      for (let x = 0; x < cols; x++) {
+        for (let y = 0; y < rows; y++) {
+          if (!snake.some(segment => segment.x === x && segment.y === y)) {
+            freeCells.push({x, y});
+          }
+        }
+      }
+      if (freeCells.length === 0) return snake[0];
+      return freeCells[Math.floor(Math.random() * freeCells.length)];
+    }
+
+    function tick() {
+      if (!running) return;
+      direction = nextDirection;
+      let head = {x: snake[0].x + direction.x, y: snake[0].y + direction.y};
+      if (head.x < 0 || head.x >= cols || head.y < 0 || head.y >= rows) { gameOver(); return; }
+      if (snake.some(segment => segment.x === head.x && segment.y === head.y)) { gameOver(); return; }
+
+      if (head.x === food.x && head.y === food.y) {
+        bites++;
+        if (food.type === "portal") {
+          let teleTarget = randomFreeCell();
+          snake.unshift(teleTarget);
+          score++;
+        } else {
+          snake.unshift(head);
+          score++;
+        }
+        scoreDiv.textContent = `Score: ${score}`;
+        updateHighscore(score);
+        placeFoodOrPortal();
+      } else {
+        snake.unshift(head);
+        snake.pop();
+      }
+      hue = (hue + 4) % 360;
+      draw();
+    }
+
+    document.addEventListener('keydown', e => {
+      if (!running) return;
+      if (e.key === 'ArrowUp'    && direction.y !== 1)  nextDirection = {x: 0, y: -1};
+      if (e.key === 'ArrowDown'  && direction.y !== -1) nextDirection = {x: 0, y: 1};
+      if (e.key === 'ArrowLeft'  && direction.x !== 1)  nextDirection = {x: -1, y: 0};
+      if (e.key === 'ArrowRight' && direction.x !== -1) nextDirection = {x: 1, y: 0};
+      // --- Portal toggle med "P" ---
+      if (e.key.toLowerCase() === 'p') {
+        portalEnabled = !portalEnabled;
+        updatePortalIndicator();
+        placeFoodOrPortal();
+        draw();
+      }
+      if (e.key === 'Enter' && !running) location.reload();
+    });
+
+    let touchStartX = 0, touchStartY = 0;
+    canvas.addEventListener('touchstart', e => {
+      if (e.touches.length === 1) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }
+    });
+    canvas.addEventListener('touchend', e => {
+      if (e.changedTouches.length === 1 && running) {
+        let dx = e.changedTouches[0].clientX - touchStartX;
+        let dy = e.changedTouches[0].clientY - touchStartY;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          if (dx > 0 && direction.x !== -1) nextDirection = {x: 1, y: 0};
+          if (dx < 0 && direction.x !== 1)  nextDirection = {x: -1, y: 0};
+        } else {
+          if (dy > 0 && direction.y !== -1) nextDirection = {x: 0, y: 1};
+          if (dy < 0 && direction.y !== 1)  nextDirection = {x: 0, y: -1};
+        }
+      }
+    });
+
+    draw();
+    setInterval(tick, 100);
+
+  </script>
+</body>
+</html>
