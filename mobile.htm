@@ -2,304 +2,457 @@
 <html lang="no">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Snake-spill (Optimalisert)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Snake</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
     <style>
+        /* --- START CSS --- */
+        :root {
+            --grid-size: 20; /* Antall ruter på en side (f.eks. 20x20) */
+            --cell-size: 20px; /* Størrelsen på hver rute */
+            --primary-neon: #00ffcc; /* Cyan */
+            --secondary-neon: #ff00ff; /* Magenta */
+            --accent-neon: #ffff00; /* Gul */
+            --background-dark: #1a1a2e;
+            --border-dark: #0f0f1d;
+            --text-color: #e0e0e0;
+        }
+
         body {
-            background: #222;
-            color: #fff;
+            font-family: 'Share Tech Mono', monospace; /* "Techy" font */
+            background-color: var(--background-dark);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* Skjuler scrollbars */
+            text-shadow: 0 0 5px var(--primary-neon);
+        }
+
+        .game-container {
             display: flex;
             flex-direction: column;
+            border: 3px solid var(--primary-neon);
+            box-shadow: 0 0 15px var(--primary-neon), inset 0 0 10px var(--primary-neon);
+            padding: 20px;
+            background-color: var(--border-dark);
+            max-width: calc(var(--grid-size) * var(--cell-size) + 80px); /* Juster basert på grid + padding */
+            position: relative;
+            animation: pulseBorder 2s infinite alternate;
+        }
+
+        @keyframes pulseBorder {
+            from { box-shadow: 0 0 10px var(--primary-neon), inset 0 0 7px var(--primary-neon); }
+            to { box-shadow: 0 0 25px var(--primary-neon), inset 0 0 15px var(--primary-neon); }
+        }
+
+        .header-display, .footer-display {
+            display: flex;
+            justify-content: space-between;
             align-items: center;
-            font-family: sans-serif;
-            margin: 0;
-            height: 100vh;
-            /* Forhindrer "pull-to-refresh" og scrolling på mobil */
-            overflow: hidden;
-            touch-action: none;
+            margin-bottom: 20px;
+            padding: 10px 0;
+            border-bottom: 1px dashed var(--secondary-neon);
+            border-top: 1px dashed var(--secondary-neon);
         }
-        h1 { margin: 10px; }
-        canvas {
-            border: 2px solid #fff;
-            background: #111;
-            display: block;
-            /* Størrelsen styres nå fullstendig av JavaScript for nøyaktighet */
+
+        .footer-display {
+            margin-top: 20px;
+            margin-bottom: 0;
+            border-bottom: none;
+            border-top: 1px dashed var(--secondary-neon);
         }
-        #score {
-            font-size: 1.2em;
-            margin-bottom: 10px;
-            min-height: 1.2em; /* Hindrer hopping når teksten endres */
+
+        .logo {
+            font-size: 2em;
+            font-weight: bold;
+            color: var(--accent-neon);
+            text-shadow: 0 0 10px var(--accent-neon);
         }
-        #controls {
-            margin: 10px; 
-            color: #aaa; 
+
+        .status-message {
+            font-size: 1.1em;
+            color: var(--primary-neon);
+            animation: blinkText 1s infinite steps(1, start);
+        }
+
+        @keyframes blinkText {
+            50% { opacity: 0; }
+        }
+
+        .score-panel, .controls, .error-log {
             font-size: 1em;
-            text-align: center;
+            color: var(--text-color);
         }
+
+        .score-panel #score {
+            color: var(--secondary-neon);
+            text-shadow: 0 0 5px var(--secondary-neon);
+        }
+
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(var(--grid-size), var(--cell-size));
+            grid-template-rows: repeat(var(--grid-size), var(--cell-size));
+            width: calc(var(--grid-size) * var(--cell-size));
+            height: calc(var(--grid-size) * var(--cell-size));
+            background-color: #0d0d18; /* Mørkere bakgrunn for spillet */
+            border: 2px solid var(--secondary-neon);
+            box-shadow: 0 0 10px var(--secondary-neon), inset 0 0 5px var(--secondary-neon);
+            position: relative;
+        }
+
+        .grid-cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            box-sizing: border-box;
+            /* Simulerer rutenett */
+            border-right: 1px dotted rgba(0, 255, 204, 0.1);
+            border-bottom: 1px dotted rgba(0, 255, 204, 0.1);
+        }
+        .grid-cell:nth-child(var(--grid-size)n) { border-right: none; }
+        .grid-cell:nth-last-child(-n + var(--grid-size)) { border-bottom: none; }
+
+        /* Slangekropp */
+        .snake-body {
+            background-color: var(--primary-neon);
+            border: 1px solid rgba(0, 255, 204, 0.8);
+            box-shadow: 0 0 8px var(--primary-neon), inset 0 0 4px var(--primary-neon);
+            animation: neonGlow 1.5s infinite alternate;
+            transition: background-color 0.1s ease-out, box-shadow 0.1s ease-out;
+        }
+
+        /* Slangehode */
+        .snake-head {
+            background-color: var(--accent-neon);
+            border: 1px solid rgba(255, 255, 0, 0.8);
+            box-shadow: 0 0 10px var(--accent-neon), inset 0 0 5px var(--accent-neon);
+            animation: headGlow 0.8s infinite alternate;
+        }
+
+        @keyframes neonGlow {
+            from { box-shadow: 0 0 5px var(--primary-neon), inset 0 0 2px var(--primary-neon); }
+            to { box-shadow: 0 0 12px var(--primary-neon), inset 0 0 6px var(--primary-neon); }
+        }
+
+        @keyframes headGlow {
+            from { box-shadow: 0 0 7px var(--accent-neon), inset 0 0 3px var(--accent-neon); }
+            to { box-shadow: 0 0 15px var(--accent-neon), inset 0 0 8px var(--accent-neon); }
+        }
+
+        /* Mat */
+        .food {
+            background-color: var(--secondary-neon);
+            border: 1px solid rgba(255, 0, 255, 0.8);
+            box-shadow: 0 0 10px var(--secondary-neon), inset 0 0 5px var(--secondary-neon);
+            border-radius: 50%; /* Rund matbit */
+            animation: foodPulse 0.6s infinite alternate;
+        }
+
+        @keyframes foodPulse {
+            from { transform: scale(0.8); opacity: 0.7; }
+            to { transform: scale(1.1); opacity: 1; }
+        }
+
+        /* Game Over-skjerm */
+        .game-over-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.5em;
+            color: var(--accent-neon);
+            text-shadow: 0 0 20px var(--accent-neon);
+            z-index: 100;
+            animation: fadeIn 0.5s ease-out;
+            opacity: 0; /* Starter skjult */
+            pointer-events: none;
+        }
+
+        .game-over-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .game-over-overlay button {
+            background-color: var(--primary-neon);
+            color: var(--background-dark);
+            border: 2px solid var(--accent-neon);
+            padding: 10px 20px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 1em;
+            margin-top: 20px;
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--primary-neon);
+            transition: all 0.2s ease-in-out;
+        }
+
+        .game-over-overlay button:hover {
+            background-color: var(--accent-neon);
+            color: var(--background-dark);
+            box-shadow: 0 0 15px var(--accent-neon);
+            transform: scale(1.05);
+        }
+
+        /* "Glitch"-effekt for Game Over-teksten */
+        .glitch {
+            animation: glitch 1.5s infinite;
+        }
+
+        @keyframes glitch {
+            0% { transform: translate(0); }
+            20% { transform: translate(-2px, 2px); }
+            40% { transform: translate(-2px, -2px); }
+            60% { transform: translate(2px, 2px); }
+            80% { transform: translate(2px, -2px); }
+            100% { transform: translate(0); }
+        }
+        /* --- SLUTT CSS --- */
     </style>
 </head>
 <body>
-    <h1>Snake</h1>
-    <div id="score">Score: 0 | High Score: 0</div>
-    <canvas id="game" tabindex="0"></canvas>
-    <div id="controls">
-        Bruk <b>WASD</b>, <b>piltaster</b> eller <b>sveip</b> for å styre
+
+    <div class="game-container">
+        <div class="header-display">
+            <div class="logo">CYBER SNAKE //</div>
+            <div class="status-message" id="statusMessage">SYSTEM BOOTING...</div>
+            <div class="score-panel">SCORE: <span id="score">0</span></div>
+        </div>
+
+        <div class="game-grid" id="gameGrid">
+            </div>
+
+        <div class="footer-display">
+            <div class="controls">USE ARROW KEYS OR WASD //</div>
+            <div class="error-log" id="errorLog">LOG: AWAITING INPUT</div>
+        </div>
     </div>
 
     <script>
-        // --- GRUNNLEGGENDE OPPSETT ---
-        const canvas = document.getElementById('game');
-        const ctx = canvas.getContext('2d');
-        const box = 20; // Størrelse på hver rute
+        // --- START JAVASCRIPT ---
 
-        // --- SPILLVARIABLER ---
-        let snake;
-        let direction;
-        let food;
-        let score;
-        let highScore;
-        let gameOver;
-        let gridSize; // Hvor mange ruter (beregnes dynamisk)
+        // --- DOM-elementer ---
+        const gameGrid = document.getElementById('gameGrid');
+        const scoreElement = document.getElementById('score');
+        const statusMessage = document.getElementById('statusMessage');
+        const errorLog = document.getElementById('errorLog');
 
-        // --- TIMING (rAF) ---
-        let lastRenderTime = 0;
-        const gameSpeed = 10; // Bevegelser per sekund
+        // --- Spillinnstillinger ---
+        const gridSize = 20; // Må matche --grid-size i CSS
+        const gameSpeed = 150; // Millisekunder per ramme (lavere = raskere)
+        let score = 0;
+        let snake = [];
+        let food = {};
+        let dx = 0; // Retning X (1, -1, 0)
+        let dy = 0; // Retning Y (1, -1, 0)
+        let gameLoopInterval;
+        let gameStarted = false;
+        let changingDirection = false;
 
-        // --- TOUCH-KONTROLLER ---
-        let touchStartX = 0;
-        let touchStartY = 0;
-
-        /**
-         * Initialiserer eller nullstiller spillet.
-         * Kjøres ved start og ved resize.
-         */
+        // --- Initialiser spillet ---
         function initGame() {
-            // 1. Sett Canvas-størrelse dynamisk
-            // Gjør canvas kvadratisk og fyll ~95% av minste skjermdimensjon
-            let size = Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.95);
-            // Må være delelig på box (=20) for rutenett
-            size = Math.floor(size / box) * box;
-            canvas.width = size;
-            canvas.height = size;
-
-            // 2. Beregn rutenettstørrelse
-            gridSize = canvas.width / box;
-
-            // 3. Nullstill spillstatus
-            snake = [{ x: Math.floor(gridSize / 2) * box, y: Math.floor(gridSize / 2) * box }];
-            direction = 'RIGHT'; // Standard startretning
             score = 0;
-            highScore = localStorage.getItem('snakeHighScore') || 0;
-            gameOver = false;
-            
-            food = randomFood();
-            updateScoreDisplay();
-            
-            // Sørg for at canvas kan motta tastetrykk
-            canvas.focus();
+            scoreElement.textContent = score;
+            snake = [{ x: 10, y: 10 }]; // Start i midten
+            dx = 0;
+            dy = 0;
+            gameStarted = false;
+            changingDirection = false;
+            statusMessage.textContent = "SYSTEM BOOTING...";
+            errorLog.textContent = "LOG: AWAITING INPUT";
+
+            createGrid();
+            generateFood();
+            drawGame();
+            if (gameLoopInterval) clearInterval(gameLoopInterval); // Fjern gamle intervaller
         }
 
-        /**
-         * Plasserer mat tilfeldig, og sikrer at den ikke er på slangen.
-         */
-        function randomFood() {
-            let newFood;
-            do {
-                newFood = {
-                    x: Math.floor(Math.random() * gridSize) * box,
-                    y: Math.floor(Math.random() * gridSize) * box,
-                };
-            } while (snake.some(part => part.x === newFood.x && part.y === newFood.y));
-            return newFood;
-        }
-
-        /**
-         * Oppdaterer poengtavlen i HTML.
-         */
-        function updateScoreDisplay() {
-            document.getElementById('score').textContent = `Score: ${score} | High Score: ${highScore}`;
-        }
-
-        // --- KONTROLLERE (INPUT) ---
-
-        document.addEventListener('keydown', e => {
-            const key = e.key.toLowerCase();
-            
-            // Hindrer 180-graders sving
-            if ((e.key === 'ArrowLeft' || key === 'a') && direction !== 'RIGHT') direction = 'LEFT';
-            else if ((e.key === 'ArrowUp' || key === 'w') && direction !== 'DOWN') direction = 'UP';
-            else if ((e.key === 'ArrowRight' || key === 'd') && direction !== 'LEFT') direction = 'RIGHT';
-            else if ((e.key === 'ArrowDown' || key === 's') && direction !== 'UP') direction = 'DOWN';
-            
-            // Start på nytt
-            else if (gameOver && (e.key === 'Enter' || e.key === ' ')) {
-                initGame();
-                // Start spillets hovedløkke på nytt
-                window.requestAnimationFrame(gameLoop);
+        // Lag det visuelle rutenettet (div-elementer)
+        function createGrid() {
+            gameGrid.innerHTML = ''; // Tøm eksisterende rutenett
+            for (let i = 0; i < gridSize * gridSize; i++) {
+                const cell = document.createElement('div');
+                cell.classList.add('grid-cell');
+                gameGrid.appendChild(cell);
             }
-        });
+        }
 
-        // Touch-håndtering
-        canvas.addEventListener('touchstart', e => {
-            e.preventDefault(); // Forhindrer scrolling
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-        }, { passive: false });
+        // Hent en spesifikk celle med koordinater
+        function getCell(x, y) {
+            if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) {
+                return null; // Utenfor brettet
+            }
+            return gameGrid.children[y * gridSize + x];
+        }
 
-        canvas.addEventListener('touchmove', e => {
-            e.preventDefault(); // Forhindrer scrolling under sveip
-        }, { passive: false });
+        // Tegn slangen og maten på rutenettet
+        function drawGame() {
+            // Tøm forrige tegning
+            Array.from(gameGrid.children).forEach(cell => {
+                cell.classList.remove('snake-body', 'snake-head', 'food');
+            });
 
-        canvas.addEventListener('touchend', e => {
-            e.preventDefault();
-            const touchEndX = e.changedTouches[0].clientX;
-            const touchEndY = e.changedTouches[0].clientY;
-            handleSwipe(touchEndX, touchEndY);
-        }, { passive: false });
-
-        function handleSwipe(endX, endY) {
-            const diffX = endX - touchStartX;
-            const diffY = endY - touchStartY;
-            const threshold = 50; // Minimum 50px sveip for å registrere
-
-            if (gameOver) {
-                // Hvis spillet er over, start på nytt ved et enkelt "trykk"
-                if (Math.abs(diffX) < threshold && Math.abs(diffY) < threshold) {
-                    initGame();
-                    window.requestAnimationFrame(gameLoop);
+            // Tegn slangen
+            snake.forEach((part, index) => {
+                const cell = getCell(part.x, part.y);
+                if (cell) {
+                    cell.classList.add('snake-body');
+                    if (index === 0) { // Hode
+                        cell.classList.add('snake-head');
+                    }
                 }
+            });
+
+            // Tegn mat
+            const foodCell = getCell(food.x, food.y);
+            if (foodCell) {
+                foodCell.classList.add('food');
+            }
+        }
+
+        // Generer ny matposisjon
+        function generateFood() {
+            let newFoodPos;
+            let collisionWithSnake;
+
+            do {
+                newFoodPos = {
+                    x: Math.floor(Math.random() * gridSize),
+                    y: Math.floor(Math.random() * gridSize)
+                };
+                collisionWithSnake = snake.some(part => part.x === newFoodPos.x && part.y === newFoodPos.y);
+            } while (collisionWithSnake); // Prøv på nytt hvis maten er på slangen
+
+            food = newFoodPos;
+        }
+
+        // Flytt slangen
+        function moveSnake() {
+            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+
+            // Sjekk for kollisjoner
+            if (isCollision(head)) {
+                gameOver();
                 return;
             }
 
-            // Sjekk om sveip er mest horisontalt eller vertikalt
-            if (Math.abs(diffX) > Math.abs(diffY)) { // Horisontalt
-                if (diffX > threshold && direction !== 'LEFT') direction = 'RIGHT';
-                else if (diffX < -threshold && direction !== 'RIGHT') direction = 'LEFT';
-            } else { // Vertikalt
-                if (diffY > threshold && direction !== 'UP') direction = 'DOWN';
-                else if (diffY < -threshold && direction !== 'DOWN') direction = 'UP';
-            }
-        }
-        
-        // --- SPILLOPPDATERING (LOGIKK) ---
+            snake.unshift(head); // Legg til nytt hode
 
-        function update() {
-            let head = { ...snake[0] }; // Kopi av hodet
-
-            // Flytt hodet
-            if (direction === 'LEFT') head.x -= box;
-            if (direction === 'UP') head.y -= box;
-            if (direction === 'RIGHT') head.x += box;
-            if (direction === 'DOWN') head.y += box;
-
-            // "Wrap-around" (teleportering ved kant)
-            if (head.x < 0) head.x = canvas.width - box;
-            if (head.x >= canvas.width) head.x = 0;
-            if (head.y < 0) head.y = canvas.height - box;
-            if (head.y >= canvas.height) head.y = 0;
-
-            // Selvkollisjon
-            if (snake.some((part, idx) => idx !== 0 && part.x === head.x && part.y === head.y)) {
-                gameOver = true;
-                return; // Avslutt oppdatering
-            }
-
-            // Legg til nytt hode
-            snake.unshift(head);
-
-            // Sjekk om mat er spist
+            // Sjekk om mat ble spist
             if (head.x === food.x && head.y === food.y) {
                 score++;
-                if (score > highScore) {
-                    highScore = score;
-                    localStorage.setItem('snakeHighScore', highScore);
-                }
-                updateScoreDisplay();
-                food = randomFood();
+                scoreElement.textContent = score;
+                statusMessage.textContent = `DATA PACKET ACQUIRED! (+1)`;
+                generateFood();
             } else {
-                // Fjern halen (hvis vi ikke spiste)
-                snake.pop();
+                snake.pop(); // Fjern halen (hvis ingen mat ble spist)
+            }
+            changingDirection = false;
+        }
+
+        // Sjekk for vegg- eller selv-kollisjon
+        function isCollision(head) {
+            // Veggkollisjon
+            if (head.x < 0 || head.x >= gridSize || head.y < 0 || head.y >= gridSize) {
+                errorLog.textContent = `ERROR 404: WALL_BREACH_DETECTED (X:${head.x}, Y:${head.y})`;
+                return true;
+            }
+
+            // Selvkollisjon
+            for (let i = 1; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) {
+                    errorLog.textContent = `ERROR 502: SELF_TERMINATION_PROTOCOL_ACTIVATED`;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Hovedspill-løkke
+        function mainGameLoop() {
+            moveSnake();
+            drawGame();
+        }
+
+        // Håndter Game Over
+        function gameOver() {
+            clearInterval(gameLoopInterval);
+            const gameOverOverlay = document.createElement('div');
+            gameOverOverlay.classList.add('game-over-overlay');
+            gameOverOverlay.innerHTML = `
+                <div class="glitch">GAME OVER //</div>
+                <div class="glitch-score">FINAL SCORE: ${score}</div>
+                <button id="restartButton">REBOOT SYSTEM</button>
+            `;
+            gameGrid.appendChild(gameOverOverlay);
+            setTimeout(() => gameOverOverlay.classList.add('visible'), 10); // Fade inn
+
+            document.getElementById('restartButton').addEventListener('click', () => {
+                gameOverOverlay.classList.remove('visible');
+                setTimeout(() => gameGrid.removeChild(gameOverOverlay), 500); // Fjern etter fade ut
+                initGame();
+            });
+
+            statusMessage.textContent = `SYSTEM HALTED. SCORE: ${score}`;
+        }
+
+        // Håndter tastetrykk for retning
+        function changeDirection(event) {
+            if (changingDirection) return;
+            changingDirection = true;
+
+            const keyPressed = event.key;
+            const goingUp = (dy === -1);
+            const goingDown = (dy === 1);
+            const goingLeft = (dx === -1);
+            const goingRight = (dx === 1);
+
+            // Start spillet på første tastetrykk
+            if (!gameStarted && (keyPressed.startsWith('Arrow') || ['w', 'a', 's', 'd'].includes(keyPressed.toLowerCase()))) {
+                gameStarted = true;
+                gameLoopInterval = setInterval(mainGameLoop, gameSpeed);
+                statusMessage.textContent = "SYSTEM ONLINE // AWAITING COMMANDS";
+                errorLog.textContent = "LOG: GAME INITIALIZED";
+            }
+
+            if ((keyPressed === 'ArrowLeft' || keyPressed.toLowerCase() === 'a') && !goingRight) {
+                dx = -1; dy = 0;
+                errorLog.textContent = `LOG: DIRECTION LEFT`;
+            } else if ((keyPressed === 'ArrowUp' || keyPressed.toLowerCase() === 'w') && !goingDown) {
+                dx = 0; dy = -1;
+                errorLog.textContent = `LOG: DIRECTION UP`;
+            } else if ((keyPressed === 'ArrowRight' || keyPressed.toLowerCase() === 'd') && !goingLeft) {
+                dx = 1; dy = 0;
+                errorLog.textContent = `LOG: DIRECTION RIGHT`;
+            } else if ((keyPressed === 'ArrowDown' || keyPressed.toLowerCase() === 's') && !goingUp) {
+                dx = 0; dy = 1;
+                errorLog.textContent = `LOG: DIRECTION DOWN`;
             }
         }
 
-        // --- TEGNING (GRAFIKK) ---
+        // --- Event Listeners ---
+        document.addEventListener('keydown', changeDirection);
 
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // --- Start spillet for første gang ---
+        initGame();
 
-            // Tegn slangen
-            for (let part of snake) {
-                ctx.fillStyle = '#4caf50';
-                ctx.fillRect(part.x, part.y, box, box);
-                ctx.strokeStyle = '#222';
-                ctx.strokeRect(part.x, part.y, box, box);
-            }
-
-            // Tegn mat
-            ctx.fillStyle = '#e91e63';
-            ctx.fillRect(food.x, food.y, box, box);
-
-            // Tegn piltips
-            drawArrows();
-        }
-        
-        function drawArrows() {
-            // Tegn små piler nederst i høyre hjørne av canvas som hint
-            const arrowSize = 25;
-            ctx.save();
-            ctx.globalAlpha = 0.25;
-            ctx.fillStyle = "#fff";
-            ctx.strokeStyle = "#fff";
-            ctx.lineWidth = 2;
-            const w = canvas.width;
-            const h = canvas.height;
-
-            // Ned
-            ctx.beginPath();
-            ctx.moveTo(w - arrowSize * 1.5, h - arrowSize * 0.5);
-            ctx.lineTo(w - arrowSize, h - arrowSize * 0.5);
-            ctx.lineTo(w - arrowSize * 1.25, h - 2);
-            ctx.closePath();
-            ctx.fill(); ctx.stroke();
-            // Opp
-            ctx.beginPath();
-            ctx.moveTo(w - arrowSize * 1.5, h - arrowSize * 1.5);
-            ctx.lineTo(w - arrowSize, h - arrowSize * 1.5);
-            ctx.lineTo(w - arrowSize * 1.25, h - arrowSize * 2);
-            ctx.closePath();
-            ctx.fill(); ctx.stroke();
-            // Venstre
-            ctx.beginPath();
-            ctx.moveTo(w - arrowSize * 1.8, h - arrowSize);
-            ctx.lineTo(w - arrowSize * 1.8, h - arrowSize * 1.5);
-            ctx.lineTo(w - arrowSize * 2.25, h - arrowSize * 1.25);
-            ctx.closePath();
-            ctx.fill(); ctx.stroke();
-            // Høyre
-            ctx.beginPath();
-            ctx.moveTo(w - arrowSize * 0.7, h - arrowSize);
-            ctx.lineTo(w - arrowSize * 0.7, h - arrowSize * 1.5);
-            ctx.lineTo(w - arrowSize * 0.3, h - arrowSize * 1.25);
-            ctx.closePath();
-            ctx.fill(); ctx.stroke();
-            ctx.restore();
-        }
-
-        function drawGameOver() {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; // Mørk bakgrunn
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            ctx.fillStyle = '#fff';
-            ctx.font = '2em sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 30);
-            
-            ctx.font = '1em sans-serif';
-            ctx.fillText('Trykk Enter, Space eller Trykk', canvas.width / 2, canvas.height / 2 + 20);
-            ctx.fillText('for å starte på nytt', canvas.width / 2, canvas.height / 2 + 45);
-        }
-
-        // --- HOVEDLØKKE (GAME LOOP) ---
-
-        function gameLoop(currentTime) {
-            if (gameOver) {
+        // --- SLUTT JAVASCRIPT ---
+    </script>
+</body>
+</html>
