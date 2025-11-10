@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Snake-spill (Optimalisert)</title>
+    <style>
+        body {
+            background: #222;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: sans-serif;
+            margin: 0;
+            height: 100vh;
+            /* Forhindrer "pull-to-refresh" og scrolling på mobil */
+            overflow: hidden;
+            touch-action: none;
+        }
+        h1 { margin: 10px; }
+        canvas {
+            border: 2px solid #fff;
+            background: #111;
+            display: block;
+            /* Størrelsen styres nå fullstendig av JavaScript for nøyaktighet */
+        }
+        #score {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            min-height: 1.2em; /* Hindrer hopping når teksten endres */
+        }
+        #controls {
+            margin: 10px; 
+            color: #aaa; 
+            font-size: 1em;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Snake</h1>
+    <div id="score">Score: 0 | High Score: 0</div>
+    <canvas id="game" tabindex="0"></canvas>
+    <div id="controls">
+        Bruk <b>WASD</b>, <b>piltaster</b> eller <b>sveip</b> for å styre
+    </div>
+
+    <script>
+        // --- GRUNNLEGGENDE OPPSETT ---
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const box = 20; // Størrelse på hver rute
+
+        // --- SPILLVARIABLER ---
+        let snake;
+        let direction;
+        let food;
+        let score;
+        let highScore;
+        let gameOver;
+        let gridSize; // Hvor mange ruter (beregnes dynamisk)
+
+        // --- TIMING (rAF) ---
+        let lastRenderTime = 0;
+        const gameSpeed = 10; // Bevegelser per sekund
+
+        // --- TOUCH-KONTROLLER ---
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        /**
+         * Initialiserer eller nullstiller spillet.
+         * Kjøres ved start og ved resize.
+         */
+        function initGame() {
+            // 1. Sett Canvas-størrelse dynamisk
+            // Gjør canvas kvadratisk og fyll ~95% av minste skjermdimensjon
+            let size = Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.95);
+            // Må være delelig på box (=20) for rutenett
+            size = Math.floor(size / box) * box;
+            canvas.width = size;
+            canvas.height = size;
+
+            // 2. Beregn rutenettstørrelse
+            gridSize = canvas.width / box;
+
+            // 3. Nullstill spillstatus
+            snake = [{ x: Math.floor(gridSize / 2) * box, y: Math.floor(gridSize / 2) * box }];
+            direction = 'RIGHT'; // Standard startretning
+            score = 0;
+            highScore = localStorage.getItem('snakeHighScore') || 0;
+            gameOver = false;
+            
+            food = randomFood();
+            updateScoreDisplay();
+            
+            // Sørg for at canvas kan motta tastetrykk
+            canvas.focus();
+        }
+
+        /**
+         * Plasserer mat tilfeldig, og sikrer at den ikke er på slangen.
+         */
+        function randomFood() {
+            let newFood;
+            do {
+                newFood = {
+                    x: Math.floor(Math.random() * gridSize) * box,
+                    y: Math.floor(Math.random() * gridSize) * box,
+                };
+            } while (snake.some(part => part.x === newFood.x && part.y === newFood.y));
+            return newFood;
+        }
+
+        /**
+         * Oppdaterer poengtavlen i HTML.
+         */
+        function updateScoreDisplay() {
+            document.getElementById('score').textContent = `Score: ${score} | High Score: ${highScore}`;
+        }
+
+        // --- KONTROLLERE (INPUT) ---
+
+        document.addEventListener('keydown', e => {
+            const key = e.key.toLowerCase();
+            
+            // Hindrer 180-graders sving
+            if ((e.key === 'ArrowLeft' || key === 'a') && direction !== 'RIGHT') direction = 'LEFT';
+            else if ((e.key === 'ArrowUp' || key === 'w') && direction !== 'DOWN') direction = 'UP';
+            else if ((e.key === 'ArrowRight' || key === 'd') && direction !== 'LEFT') direction = 'RIGHT';
+            else if ((e.key === 'ArrowDown' || key === 's') && direction !== 'UP') direction = 'DOWN';
+            
+            // Start på nytt
+            else if (gameOver && (e.key === 'Enter' || e.key === ' ')) {
+                initGame();
+                // Start spillets hovedløkke på nytt
+                window.requestAnimationFrame(gameLoop);
+            }
+        });
+
+        // Touch-håndtering
+        canvas.addEventListener('touchstart', e => {
+            e.preventDefault(); // Forhindrer scrolling
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', e => {
+            e.preventDefault(); // Forhindrer scrolling under sveip
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', e => {
+            e.preventDefault();
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            handleSwipe(touchEndX, touchEndY);
+        }, { passive: false });
+
+        function handleSwipe(endX, endY) {
+            const diffX = endX - touchStartX;
+            const diffY = endY - touchStartY;
+            const threshold = 50; // Minimum 50px sveip for å registrere
+
+            if (gameOver) {
+                // Hvis spillet er over, start på nytt ved et enkelt "trykk"
+                if (Math.abs(diffX) < threshold && Math.abs(diffY) < threshold) {
+                    initGame();
+                    window.requestAnimationFrame(gameLoop);
+                }
+                return;
+            }
+
+            // Sjekk om sveip er mest horisontalt eller vertikalt
+            if (Math.abs(diffX) > Math.abs(diffY)) { // Horisontalt
+                if (diffX > threshold && direction !== 'LEFT') direction = 'RIGHT';
+                else if (diffX < -threshold && direction !== 'RIGHT') direction = 'LEFT';
+            } else { // Vertikalt
+                if (diffY > threshold && direction !== 'UP') direction = 'DOWN';
+                else if (diffY < -threshold && direction !== 'DOWN') direction = 'UP';
+            }
+        }
+        
+        // --- SPILLOPPDATERING (LOGIKK) ---
+
+        function update() {
+            let head = { ...snake[0] }; // Kopi av hodet
+
+            // Flytt hodet
+            if (direction === 'LEFT') head.x -= box;
+            if (direction === 'UP') head.y -= box;
+            if (direction === 'RIGHT') head.x += box;
+            if (direction === 'DOWN') head.y += box;
+
+            // "Wrap-around" (teleportering ved kant)
+            if (head.x < 0) head.x = canvas.width - box;
+            if (head.x >= canvas.width) head.x = 0;
+            if (head.y < 0) head.y = canvas.height - box;
+            if (head.y >= canvas.height) head.y = 0;
+
+            // Selvkollisjon
+            if (snake.some((part, idx) => idx !== 0 && part.x === head.x && part.y === head.y)) {
+                gameOver = true;
+                return; // Avslutt oppdatering
+            }
+
+            // Legg til nytt hode
+            snake.unshift(head);
+
+            // Sjekk om mat er spist
+            if (head.x === food.x && head.y === food.y) {
+                score++;
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('snakeHighScore', highScore);
+                }
+                updateScoreDisplay();
+                food = randomFood();
+            } else {
+                // Fjern halen (hvis vi ikke spiste)
+                snake.pop();
+            }
+        }
+
+        // --- TEGNING (GRAFIKK) ---
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Tegn slangen
+            for (let part of snake) {
+                ctx.fillStyle = '#4caf50';
+                ctx.fillRect(part.x, part.y, box, box);
+                ctx.strokeStyle = '#222';
+                ctx.strokeRect(part.x, part.y, box, box);
+            }
+
+            // Tegn mat
+            ctx.fillStyle = '#e91e63';
+            ctx.fillRect(food.x, food.y, box, box);
+
+            // Tegn piltips
+            drawArrows();
+        }
+        
+        function drawArrows() {
+            // Tegn små piler nederst i høyre hjørne av canvas som hint
+            const arrowSize = 25;
+            ctx.save();
+            ctx.globalAlpha = 0.25;
+            ctx.fillStyle = "#fff";
+            ctx.strokeStyle = "#fff";
+            ctx.lineWidth = 2;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Ned
+            ctx.beginPath();
+            ctx.moveTo(w - arrowSize * 1.5, h - arrowSize * 0.5);
+            ctx.lineTo(w - arrowSize, h - arrowSize * 0.5);
+            ctx.lineTo(w - arrowSize * 1.25, h - 2);
+            ctx.closePath();
+            ctx.fill(); ctx.stroke();
+            // Opp
+            ctx.beginPath();
+            ctx.moveTo(w - arrowSize * 1.5, h - arrowSize * 1.5);
+            ctx.lineTo(w - arrowSize, h - arrowSize * 1.5);
+            ctx.lineTo(w - arrowSize * 1.25, h - arrowSize * 2);
+            ctx.closePath();
+            ctx.fill(); ctx.stroke();
+            // Venstre
+            ctx.beginPath();
+            ctx.moveTo(w - arrowSize * 1.8, h - arrowSize);
+            ctx.lineTo(w - arrowSize * 1.8, h - arrowSize * 1.5);
+            ctx.lineTo(w - arrowSize * 2.25, h - arrowSize * 1.25);
+            ctx.closePath();
+            ctx.fill(); ctx.stroke();
+            // Høyre
+            ctx.beginPath();
+            ctx.moveTo(w - arrowSize * 0.7, h - arrowSize);
+            ctx.lineTo(w - arrowSize * 0.7, h - arrowSize * 1.5);
+            ctx.lineTo(w - arrowSize * 0.3, h - arrowSize * 1.25);
+            ctx.closePath();
+            ctx.fill(); ctx.stroke();
+            ctx.restore();
+        }
+
+        function drawGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; // Mørk bakgrunn
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = '2em sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 30);
+            
+            ctx.font = '1em sans-serif';
+            ctx.fillText('Trykk Enter, Space eller Trykk', canvas.width / 2, canvas.height / 2 + 20);
+            ctx.fillText('for å starte på nytt', canvas.width / 2, canvas.height / 2 + 45);
+        }
+
+        // --- HOVEDLØKKE (GAME LOOP) ---
+
+        function gameLoop(currentTime) {
+            if (gameOver) {
